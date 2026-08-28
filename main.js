@@ -83,7 +83,8 @@ const appState = {
     setup: null,
     systemCommon: null,
     toneCommon: null,
-    tonePart: null
+    tonePart: null,
+    assigns: {}
 };
 
 // Define tone name dictionary
@@ -200,14 +201,6 @@ const assignDefs = [
     { id: "motionTilt", name: "Motion Tilt Assign", chkId: "chkMotionTilt", reqSize: 0x1C, sysSourceOffset: 0x36, sysAddr: 0x18, toneAddr: 0x09, areaElement: () => motionTiltAssignArea }
 ];
 
-// Object to hold assign states
-let assignStates = {};
-function initAssignStates() {
-    assignDefs.forEach(def => {
-        assignStates[def.id] = { source: null, sysData: null, toneData: null };
-    });
-}
-
 // Get display areas and buttons
 const statusMessage = document.getElementById("statusMessage");
 const setupArea = document.getElementById("setupArea");
@@ -296,8 +289,15 @@ function clearActiveSettingsData() {
     tempToneEffectType = null;
     tempToneEffectLevel = null;
 
-    // Clear assign variables
-    initAssignStates();
+    // appStateの初期化（Assignの枠もここで作ります）
+    appState.setup = null;
+    appState.toneCommon = null;
+    appState.systemCommon = null;
+    appState.tonePart = null;
+    
+    assignDefs.forEach(def => {
+        appState.assigns[def.id] = { source: null, sysData: null, toneData: null };
+    });
 
     const area = document.getElementById("activeSettingsArea");
     if (area) area.innerHTML = "";
@@ -349,7 +349,7 @@ function updateActiveSettings() {
         // Do not display if unchecked
         if (!document.getElementById(def.chkId).checked) return;
 
-        const state = assignStates[def.id];
+        const state = appState.assigns[def.id];
         let activeText = "Waiting for data...";
         let sourceName = "-";
 
@@ -596,8 +596,8 @@ function onMIDISuccess(midiAccess) {
                     let activeAssignRequests = [];
 
                     assignDefs.forEach(def => {
-                        const sourceVal = data[11 + def.sysSourceOffset];
-                        assignStates[def.id].source = sourceVal;
+                        const sourceVal = payload[def.sysSourceOffset];
+                        appState.assigns[def.id].source = sourceVal; // assignStatesから変更
 
                         // In Active Settings mode, request only "necessary data" additionally based on the evaluation result
                         if (isToneSelectActive && document.getElementById(def.chkId).checked) {
@@ -605,9 +605,6 @@ function onMIDISuccess(midiAccess) {
                                 activeAssignRequests.push([0x00, 0x00, def.sysAddr, 0x00, 0x00, 0x00, 0x00, def.reqSize]);
                             } else if (sourceVal === 2) {
                                 activeAssignRequests.push([0x01, 0x00, def.toneAddr, 0x00, 0x00, 0x00, 0x00, def.reqSize]);
-                            } else if (sourceVal === 0) {
-                                // Thoughtful UI: Do nothing if OFF, but show helpful message in details area
-                                def.areaElement().innerHTML = `<h3>${def.name} Settings</h3><p>Currently set to OFF (Disabled).</p>`;
                             }
                         }
                     });
@@ -624,11 +621,11 @@ function onMIDISuccess(midiAccess) {
 
                 // System side assign data reception processing
                 if (data[10] === 0x00 && data[9] !== 0x00) {
-                    const assignData = data.slice(11, data.length - 2);
+                    const assignData = Array.from(data.slice(11, data.length - 2));
                     assignDefs.forEach(def => {
                         if (data[9] === def.sysAddr) {
-                            assignStates[def.id].sysData = assignData;
-                            renderAssignData("System " + def.name, def.areaElement(), assignData);
+                            appState.assigns[def.id].sysData = assignData;
+                            renderAssignArea(def.id, "System"); // 専用の描画関数を呼ぶ
                             updateActiveSettings();
                         }
                     });
@@ -683,12 +680,12 @@ function onMIDISuccess(midiAccess) {
 
                 // Common Assign processing (S1:01, S2:02, Thumb:03, Breath:04, Motion Tilt:08)
                 else if (((data[9] >= 0x01 && data[9] <= 0x04) || data[9] === 0x08 || data[9] === 0x09) && data[10] === 0x00) {
-                    const assignData = data.slice(11, data.length - 2);
+                    const assignData = Array.from(data.slice(11, data.length - 2));
 
                     assignDefs.forEach(def => {
                         if (data[9] === def.toneAddr) {
-                            assignStates[def.id].toneData = assignData;
-                            renderAssignData("Tone " + def.name, def.areaElement(), assignData);
+                            appState.assigns[def.id].toneData = assignData;
+                            renderAssignArea(def.id, "Tone");
                             updateActiveSettings();
                         }
                     });
@@ -1073,4 +1070,51 @@ function renderTonePart() {
             </table>
         `;
     }
+}
+
+// Dedicated function to render Assign Areas
+function renderAssignArea(defId, prefix) {
+    const def = assignDefs.find(d => d.id === defId);
+    const state = appState.assigns[defId];
+    const targetArea = def.areaElement();
+    if (!targetArea || !def || !state) return;
+
+    // System Source が 0 (OFF) の場合の描画
+    if (state.source === 0) {
+        targetArea.innerHTML = `<h3>${def.name} Settings</h3><p>Currently set to OFF (Disabled).</p>`;
+        return;
+    }
+
+    const assignData = prefix === "System" ? state.sysData : state.toneData;
+    if (!assignData) return;
+
+    statusMessage.innerHTML = `${prefix} ${def.name} data read successfully!`;
+    const setCount = assignData.length / 7;
+    let html = `<h3>${prefix} ${def.name} Settings</h3>`;
+
+    for (let i = 0; i < setCount; i++) {
+        const offset = i * 7;
+        const funcVal = assignData[offset + 0];
+        const inMin = assignData[offset + 1];
+        const inMax = assignData[offset + 2];
+        const outMin = assignData[offset + 3];
+        const outMax = assignData[offset + 4];
+        const modeVal = assignData[offset + 5];
+        const curveVal = assignData[offset + 6];
+
+        html += `
+        <h4>Assign ${i + 1}</h4>
+        <table>
+            <tr><th>Parameter</th><th>Value</th></tr>
+            <tr><td>Function</td><td>${assignFunctionList[funcVal] || funcVal}</td></tr>
+            <tr><td>Input Min</td><td>${inMin}</td></tr>
+            <tr><td>Input Max</td><td>${inMax}</td></tr>
+            <tr><td>Output Min</td><td>${outMin}</td></tr>
+            <tr><td>Output Max</td><td>${outMax}</td></tr>
+            <tr><td>Mode</td><td>${modeList[modeVal] || modeVal}</td></tr>
+            <tr><td>Curve</td><td>${curveList[curveVal] || curveVal}</td></tr>
+        </table>
+        `;
+    }
+    targetArea.innerHTML = html;
 }
