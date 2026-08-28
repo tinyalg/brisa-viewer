@@ -460,6 +460,10 @@ function onMIDISuccess(midiAccess) {
     toneDownButton.disabled = false;
     toneUpButton.disabled = false;
 
+    const connectBtn = document.getElementById('connectButton');
+    connectBtn.textContent = "Connected";
+    connectBtn.disabled = true;
+
     // Global transmission queue management (for 2-step requests)
     let globalRequestQueue = [];
     let isSendingRequests = false;
