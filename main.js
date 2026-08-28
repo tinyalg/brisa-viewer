@@ -82,7 +82,8 @@
 const appState = {
     setup: null,
     systemCommon: null,
-    toneCommon: null
+    toneCommon: null,
+    tonePart: null
 };
 
 // Define tone name dictionary
@@ -697,7 +698,7 @@ function onMIDISuccess(midiAccess) {
                 else if (data[9] === 0x30 && data[10] === 0x00) {
                     statusMessage.innerHTML = "Tone Part data read successfully!";
 
-                    // Extract each parameter
+                    // 1. Extract each parameter
                     const partLevel = data[11 + 0x05];
                     const partPan = data[11 + 0x07];
                     const partCoarseTune = data[11 + 0x08];
@@ -705,7 +706,6 @@ function onMIDISuccess(midiAccess) {
 
                     // Portamento Switch (0=OFF, 1=ON, 2=TONE)
                     const portaSw = data[11 + 0x0C];
-                    const portaSwText = portaSw === 0 ? "OFF" : (portaSw === 1 ? "ON" : "TONE");
 
                     // Portamento Time (Nibble data: Combine upper 4 bits and lower 4 bits)
                     const portaTime = (data[11 + 0x0D] << 4) + data[11 + 0x0E];
@@ -725,30 +725,29 @@ function onMIDISuccess(midiAccess) {
                     const reverb = data[11 + 0x23];
                     const delay = data[11 + 0x28];
 
-                    // Output as a table on the screen
-                    tonePartArea.innerHTML = `
-                      <h3>Tone Part Settings</h3>
-            <table>
-                <tr><th>Parameter</th><th>Value</th></tr>
-                <tr><td>Part Level</td><td>${partLevel}</td></tr>
-                <tr><td>Part Pan</td><td>${partPan}</td></tr>
-                <tr><td>Part Coarse Tune</td><td>${partCoarseTune}</td></tr>
-                <tr><td>Part Fine Tune</td><td>${partFineTune}</td></tr>
-                <tr><td>Portamento Switch</td><td>${portaSwText}</td></tr>
-                <tr><td>Portamento Time</td><td>${portaTime}</td></tr>
-                <tr><td>Cutoff Offset</td><td>${cutoff > 0 ? '+' + cutoff : cutoff}</td></tr>
-                <tr><td>Resonance Offset</td><td>${reso > 0 ? '+' + reso : reso}</td></tr>
-                <tr><td>AttackTime Offset</td><td>${attack > 0 ? '+' + attack : attack}</td></tr>
-                <tr><td>DecayTime Offset</td><td>${decay > 0 ? '+' + decay : decay}</td></tr>
-                <tr><td>ReleaseTime Offset</td><td>${release > 0 ? '+' + release : release}</td></tr>
-                <tr><td>Vibrato Rate</td><td>${vibRate > 0 ? '+' + vibRate : vibRate}</td></tr>
-                <tr><td>Vibrato Depth</td><td>${vibDepth > 0 ? '+' + vibDepth : vibDepth}</td></tr>
-                <tr><td>Vibrato Delay</td><td>${vibDelay > 0 ? '+' + vibDelay : vibDelay}</td></tr>
-                <tr><td>Chorus Send</td><td>${chorus}</td></tr>
-                <tr><td>Reverb Send</td><td>${reverb}</td></tr>
-                <tr><td>Delay Send</td><td>${delay}</td></tr>
-            </table>
-          `;
+                    // 2. Store extracted data into appState
+                    appState.tonePart = {
+                        partLevel: partLevel,
+                        partPan: partPan,
+                        partCoarseTune: partCoarseTune,
+                        partFineTune: partFineTune,
+                        portaSw: portaSw,
+                        portaTime: portaTime,
+                        cutoff: cutoff,
+                        reso: reso,
+                        attack: attack,
+                        decay: decay,
+                        release: release,
+                        vibRate: vibRate,
+                        vibDepth: vibDepth,
+                        vibDelay: vibDelay,
+                        chorus: chorus,
+                        reverb: reverb,
+                        delay: delay
+                    };
+
+                    // 3. Call the separated rendering function
+                    renderTonePart();
                 }
             }
         }
@@ -816,6 +815,11 @@ function onMIDISuccess(midiAccess) {
             initialRequests.push([0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x67]); // System Common
             initialRequests.push([0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1D]); // Tone Common
             initialRequests.push([0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10]); // Setup
+            
+            // Add request for Tone Part if checked
+            if (document.getElementById("chkTonePart").checked) {
+                initialRequests.push([0x01, 0x00, 0x30, 0x00, 0x00, 0x00, 0x00, 0x29]); 
+            }
         } else {
             if (document.getElementById("chkCommon").checked) {
                 if (msb === 0x00) {
@@ -1028,6 +1032,44 @@ function renderToneCommon() {
                 <tr><td>Tone Transpose</td><td>${transText}</td></tr>
                 <tr><td>Tone Octave Shift</td><td>${octText}</td></tr>
                 <tr><td>Intelligent Harmony</td><td>${intelHarmText}</td></tr>
+            </table>
+        `;
+    }
+}
+
+// Dedicated function to render the Tone Part Area
+function renderTonePart() {
+    if (!appState.tonePart) return;
+
+    const tpData = appState.tonePart;
+
+    // Formatting for display
+    const portaSwText = tpData.portaSw === 0 ? "OFF" : (tpData.portaSw === 1 ? "ON" : "TONE");
+    
+    // Output as a table on the screen
+    const tonePartArea = document.getElementById("tonePartArea");
+    if (tonePartArea) {
+        tonePartArea.innerHTML = `
+            <h3>Tone Part Settings</h3>
+            <table>
+                <tr><th>Parameter</th><th>Value</th></tr>
+                <tr><td>Part Level</td><td>${tpData.partLevel}</td></tr>
+                <tr><td>Part Pan</td><td>${tpData.partPan}</td></tr>
+                <tr><td>Part Coarse Tune</td><td>${tpData.partCoarseTune}</td></tr>
+                <tr><td>Part Fine Tune</td><td>${tpData.partFineTune}</td></tr>
+                <tr><td>Portamento Switch</td><td>${portaSwText}</td></tr>
+                <tr><td>Portamento Time</td><td>${tpData.portaTime}</td></tr>
+                <tr><td>Cutoff Offset</td><td>${tpData.cutoff > 0 ? '+' + tpData.cutoff : tpData.cutoff}</td></tr>
+                <tr><td>Resonance Offset</td><td>${tpData.reso > 0 ? '+' + tpData.reso : tpData.reso}</td></tr>
+                <tr><td>AttackTime Offset</td><td>${tpData.attack > 0 ? '+' + tpData.attack : tpData.attack}</td></tr>
+                <tr><td>DecayTime Offset</td><td>${tpData.decay > 0 ? '+' + tpData.decay : tpData.decay}</td></tr>
+                <tr><td>ReleaseTime Offset</td><td>${tpData.release > 0 ? '+' + tpData.release : tpData.release}</td></tr>
+                <tr><td>Vibrato Rate</td><td>${tpData.vibRate > 0 ? '+' + tpData.vibRate : tpData.vibRate}</td></tr>
+                <tr><td>Vibrato Depth</td><td>${tpData.vibDepth > 0 ? '+' + tpData.vibDepth : tpData.vibDepth}</td></tr>
+                <tr><td>Vibrato Delay</td><td>${tpData.vibDelay > 0 ? '+' + tpData.vibDelay : tpData.vibDelay}</td></tr>
+                <tr><td>Chorus Send</td><td>${tpData.chorus}</td></tr>
+                <tr><td>Reverb Send</td><td>${tpData.reverb}</td></tr>
+                <tr><td>Delay Send</td><td>${tpData.delay}</td></tr>
             </table>
         `;
     }
