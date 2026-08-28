@@ -81,6 +81,7 @@
 // Object to manage application state
 const appState = {
     setup: null,
+    systemCommon: null,
     toneCommon: null
 };
 
@@ -574,109 +575,18 @@ function onMIDISuccess(midiAccess) {
             else if (isSystemData) {
                 // System Common (Address 00 00 00)
                 if (data[9] === 0x00 && data[10] === 0x00) {
-                    const systemCommonArea = document.getElementById("systemCommonArea");
-                    if (!systemCommonArea) return;
-
                     statusMessage.innerHTML = "System Common data read successfully!";
 
-                    // Dictionary object defining known parameters
-                    const sysCommonMap = {
-                        0x00: { name: "Display Contrast" },
-                        0x01: { name: "Auto Display Off", map: autoDisplayOffMap },
-                        0x02: { name: "Auto Power Off", map: autoPowerOffMap },
-                        0x03: { name: "Menu Startup Mode", map: menuStartupMap },
-                        0x04: { name: "Edit Confirm", map: onOffMap },
-                        0x05: { name: "Favorite Shortcut", map: onOffMap },
-                        0x06: { name: "Phones Mono/Stereo", map: phonesMonoStereoMap },
-                        0x07: { name: "Speaker Out", map: speakerOutMap },
-                        0x08: { name: "Phones Volume" },
-                        0x09: { name: "Speaker Volume" },
-                        0x0E: { name: "Transpose Source", map: transposeSourceMap },
-                        0x0F: { name: "Transpose", map: transposeMap },
-                        0x10: { name: "Fingering Mode", map: fingeringModeMap },
-                        0x11: { name: "Key Delay" },
-                        0x12: { name: "Hold Mode", map: onOffMap },
-                        0x14: { name: "Octave Mode", map: octaveModeMap },
-                        0x15: { name: "Bend Range", special: (val) => val === 0 ? "Follow Tone" : val - 1 },
-                        0x30: { name: "S1 Assign Source", map: assignSourceMap },
-                        0x31: { name: "S2 Assign Source", map: assignSourceMap },
-                        0x32: { name: "Thumb Assign Source", map: assignSourceMap },
-                        0x33: { name: "Breath Assign Source", map: assignSourceMap },
-                        0x35: { name: "Motion Roll Assign Source", map: assignSourceMap },
-                        0x36: { name: "Motion Tilt Assign Source", map: assignSourceMap },
-                        0x38: { name: "Motion Roll Mode", map: motionModeMap },
-                        0x39: { name: "Motion Tilt Mode", map: motionModeMap },
-                        0x3E: { name: "Motion Roll Vib Sense" },
-                        0x3F: { name: "Motion Tilt Vib Sense" },
-                        0x40: { name: "Breath Offset" },
-                        0x41: { name: "Breath Curve" },
-                        0x46: { name: "Harmonics Center", map: harmonicsCenterMap },
-                        0x48: { name: "Harmonics Delay" },
-                        0x4A: { name: "Harmonics Polarity", map: harmonicsPolarityMap },
-                        0x65: { name: "MIDI Tx Channel", special: (val) => val + 1 },
-                        0x66: { name: "MIDI Tx Velocity", special: (val) => val === 0 ? "Tongued" : `Fixed ${val}` }
+                    // 1. Extract the raw payload data (excluding header, checksum, EOX)
+                    // (Address offset starts at index 11)
+                    const payload = Array.from(data.slice(11, data.length - 2));
+
+                    // 2. Store raw payload into appState
+                    appState.systemCommon = {
+                        payload: payload
                     };
 
-                    let tableHtml = `
-                        <h3>System Common Settings</h3>
-                  <table>
-                            <tr><th>Address (Offset)</th><th>Parameter</th><th>Value</th></tr>
-              `;
-
-                    // Guard processing to loop within received data length
-                    // Exclude 13 bytes total: 11-byte header + checksum + EOX
-                    const dataLimit = Math.min(0x66, data.length - 13);
-
-                    for (let offset = 0; offset <= dataLimit; offset++) {
-                        // Use highly compatible slice instead of padStart
-                        const hexOffset = ("0" + offset.toString(16).toUpperCase()).slice(-2);
-                        const rawValue = data[11 + offset];
-
-                        let paramName = "Unknown (Not Documented)";
-                        let displayValue = rawValue;
-
-                        // Set name and converted value if known parameter
-                        if (sysCommonMap[offset]) {
-                            paramName = sysCommonMap[offset].name;
-                            if (sysCommonMap[offset].special) {
-                                displayValue = sysCommonMap[offset].special(rawValue);
-                            } else if (sysCommonMap[offset].map) {
-                                displayValue = sysCommonMap[offset].map[rawValue] !== undefined ? sysCommonMap[offset].map[rawValue] : rawValue;
-                            }
-                        }
-
-                        // Special processing for multi-byte (nibble data)
-                        if (offset === 0x0A || offset === 0x0B || offset === 0x0C) {
-                            paramName = "Master Tune (Data part)";
-                        } else if (offset === 0x0D) {
-                            paramName = "Master Tune (Calculated)";
-                            const rawMasterTune = (data[11 + 0x0A] << 12) | (data[11 + 0x0B] << 8) | (data[11 + 0x0C] << 4) | data[11 + 0x0D];
-                            displayValue = rawMasterTune - 1024;
-                        } else if (offset === 0x3A) {
-                            paramName = "Motion Roll Center (Data part)";
-                        } else if (offset === 0x3B) {
-                            paramName = "Motion Roll Center (Calculated)";
-                            const rawRollCenter = (data[11 + 0x3A] << 4) | data[11 + 0x3B];
-                            displayValue = rawRollCenter - 128;
-                        } else if (offset === 0x3C) {
-                            paramName = "Motion Tilt Center (Data part)";
-                        } else if (offset === 0x3D) {
-                            paramName = "Motion Tilt Center (Calculated)";
-                            const rawTiltCenter = (data[11 + 0x3C] << 4) | data[11 + 0x3D];
-                            displayValue = rawTiltCenter - 128;
-                        }
-
-                        if (paramName === "Unknown (Not Documented)") {
-                            continue;
-                        }
-
-                        tableHtml += `<tr><td>00 ${hexOffset}</td><td>${paramName}</td><td>${displayValue}</td></tr>`;
-                    }
-
-                    tableHtml += `</table>`;
-                    systemCommonArea.innerHTML = tableHtml;
-
-                    // Process to update currently active settings
+                    // (Existing process) Process to update currently active settings
                     tempSysTransposeSource = data[11 + 0x0E];
                     tempSysTranspose = data[11 + 0x0F];
 
@@ -705,6 +615,8 @@ function onMIDISuccess(midiAccess) {
                     if (activeAssignRequests.length > 0) {
                         enqueueRequests(activeAssignRequests);
                     }
+                    // 3. Call the separated rendering function
+                    renderSystemCommon();
 
                     updateActiveSettings();
                 }
@@ -982,6 +894,110 @@ function renderSetup() {
             System Effect Level: ${setupData.sysEffectLevel}
         `;
     }
+}
+
+// Dedicated function to render the System Common Area
+function renderSystemCommon() {
+    if (!appState.systemCommon) return;
+
+    const payload = appState.systemCommon.payload;
+    const systemCommonArea = document.getElementById("systemCommonArea");
+    if (!systemCommonArea) return;
+
+    // Dictionary object defining known parameters
+    const sysCommonMap = {
+        0x00: { name: "Display Contrast" },
+        0x01: { name: "Auto Display Off", map: autoDisplayOffMap },
+        0x02: { name: "Auto Power Off", map: autoPowerOffMap },
+        0x03: { name: "Menu Startup Mode", map: menuStartupMap },
+        0x04: { name: "Edit Confirm", map: onOffMap },
+        0x05: { name: "Favorite Shortcut", map: onOffMap },
+        0x06: { name: "Phones Mono/Stereo", map: phonesMonoStereoMap },
+        0x07: { name: "Speaker Out", map: speakerOutMap },
+        0x08: { name: "Phones Volume" },
+        0x09: { name: "Speaker Volume" },
+        0x0E: { name: "Transpose Source", map: transposeSourceMap },
+        0x0F: { name: "Transpose", map: transposeMap },
+        0x10: { name: "Fingering Mode", map: fingeringModeMap },
+        0x11: { name: "Key Delay" },
+        0x12: { name: "Hold Mode", map: onOffMap },
+        0x14: { name: "Octave Mode", map: octaveModeMap },
+        0x15: { name: "Bend Range", special: (val) => val === 0 ? "Follow Tone" : val - 1 },
+        0x30: { name: "S1 Assign Source", map: assignSourceMap },
+        0x31: { name: "S2 Assign Source", map: assignSourceMap },
+        0x32: { name: "Thumb Assign Source", map: assignSourceMap },
+        0x33: { name: "Breath Assign Source", map: assignSourceMap },
+        0x35: { name: "Motion Roll Assign Source", map: assignSourceMap },
+        0x36: { name: "Motion Tilt Assign Source", map: assignSourceMap },
+        0x38: { name: "Motion Roll Mode", map: motionModeMap },
+        0x39: { name: "Motion Tilt Mode", map: motionModeMap },
+        0x3E: { name: "Motion Roll Vib Sense" },
+        0x3F: { name: "Motion Tilt Vib Sense" },
+        0x40: { name: "Breath Offset" },
+        0x41: { name: "Breath Curve" },
+        0x46: { name: "Harmonics Center", map: harmonicsCenterMap },
+        0x48: { name: "Harmonics Delay" },
+        0x4A: { name: "Harmonics Polarity", map: harmonicsPolarityMap },
+        0x65: { name: "MIDI Tx Channel", special: (val) => val + 1 },
+        0x66: { name: "MIDI Tx Velocity", special: (val) => val === 0 ? "Tongued" : `Fixed ${val}` }
+    };
+
+    let tableHtml = `
+        <h3>System Common Settings</h3>
+        <table>
+            <tr><th>Address (Offset)</th><th>Parameter</th><th>Value</th></tr>
+    `;
+
+    // Guard processing to loop within received data length
+    const dataLimit = Math.min(0x66, payload.length - 1);
+
+    for (let offset = 0; offset <= dataLimit; offset++) {
+        const hexOffset = ("0" + offset.toString(16).toUpperCase()).slice(-2);
+        const rawValue = payload[offset];
+
+        let paramName = "Unknown (Not Documented)";
+        let displayValue = rawValue;
+
+        // Set name and converted value if known parameter
+        if (sysCommonMap[offset]) {
+            paramName = sysCommonMap[offset].name;
+            if (sysCommonMap[offset].special) {
+                displayValue = sysCommonMap[offset].special(rawValue);
+            } else if (sysCommonMap[offset].map) {
+                displayValue = sysCommonMap[offset].map[rawValue] !== undefined ? sysCommonMap[offset].map[rawValue] : rawValue;
+            }
+        }
+
+        // Special processing for multi-byte (nibble data)
+        if (offset === 0x0A || offset === 0x0B || offset === 0x0C) {
+            paramName = "Master Tune (Data part)";
+        } else if (offset === 0x0D) {
+            paramName = "Master Tune (Calculated)";
+            const rawMasterTune = (payload[0x0A] << 12) | (payload[0x0B] << 8) | (payload[0x0C] << 4) | payload[0x0D];
+            displayValue = rawMasterTune - 1024;
+        } else if (offset === 0x3A) {
+            paramName = "Motion Roll Center (Data part)";
+        } else if (offset === 0x3B) {
+            paramName = "Motion Roll Center (Calculated)";
+            const rawRollCenter = (payload[0x3A] << 4) | payload[0x3B];
+            displayValue = rawRollCenter - 128;
+        } else if (offset === 0x3C) {
+            paramName = "Motion Tilt Center (Data part)";
+        } else if (offset === 0x3D) {
+            paramName = "Motion Tilt Center (Calculated)";
+            const rawTiltCenter = (payload[0x3C] << 4) | payload[0x3D];
+            displayValue = rawTiltCenter - 128;
+        }
+
+        if (paramName === "Unknown (Not Documented)") {
+            continue;
+        }
+
+        tableHtml += `<tr><td>00 ${hexOffset}</td><td>${paramName}</td><td>${displayValue}</td></tr>`;
+    }
+
+    tableHtml += `</table>`;
+    systemCommonArea.innerHTML = tableHtml;
 }
 
 // Dedicated function to render the Tone Common Area
