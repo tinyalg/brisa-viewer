@@ -80,7 +80,8 @@
 
 // Object to manage application state
 const appState = {
-    setup: null
+    setup: null,
+    toneCommon: null
 };
 
 // Define tone name dictionary
@@ -729,13 +730,13 @@ function onMIDISuccess(midiAccess) {
                 if (data[9] === 0x00 && data[10] === 0x00) {
                     statusMessage.innerHTML = "Tone Common data read successfully!";
 
-                    // Decode 16-character tone name (from ASCII to string)
+                    // 1. Decode 16-character tone name (from ASCII to string)
                     let nameStr = "";
                     for (let i = 0; i < 16; i++) {
                         nameStr += String.fromCharCode(data[11 + i]);
                     }
 
-                    // Extract parameters according to specs (11 is the offset for data start position)
+                    // 2. Extract parameters according to specs (11 is the offset for data start position)
                     const harmonyDrone = data[11 + 0x12];
                     const toneLevel = data[11 + 0x14];
                     const effectType = data[11 + 0x15];
@@ -744,33 +745,26 @@ function onMIDISuccess(midiAccess) {
                     const octaveShift = data[11 + 0x18];
                     const intelHarmony = data[11 + 0x1C];
 
-                    // Format for screen display
-                    const hdText = harmonyDrone === 0 ? "Harmony" : "Drone";
-                    const transText = transposeMap[toneTranspose] || toneTranspose;
-                    const octText = (octaveShift - 64) > 0 ? `+${octaveShift - 64}` : `${octaveShift - 64}`;
-                    const effTypeText = effectTypeMap[effectType] || `Type ${effectType}`;
-                    const intelHarmText = intelHarmonyMap[intelHarmony] || `Type ${intelHarmony}`;
+                    // 3. Store data into appState
+                    appState.toneCommon = {
+                        nameStr: nameStr,
+                        harmonyDrone: harmonyDrone,
+                        toneLevel: toneLevel,
+                        effectType: effectType,
+                        effectLevel: effectLevel,
+                        toneTranspose: toneTranspose,
+                        octaveShift: octaveShift,
+                        intelHarmony: intelHarmony
+                    };
 
-                    // Write to Tone Common specific area
-                    toneCommonArea.innerHTML = `
-                      <h3>Tone Common Settings</h3>
-            <table>
-                          <tr><th>Parameter</th><th>Value</th></tr>
-                          <tr><td>NAME (Tone Name)</td><td><strong>${nameStr}</strong></td></tr>
-                <tr><td>Harmony/Drone</td><td>${hdText}</td></tr>
-                <tr><td>Tone Level</td><td>${toneLevel}</td></tr>
-                <tr><td>Effect Type</td><td>${effTypeText}</td></tr>
-                <tr><td>Effect Level</td><td>${effectLevel}</td></tr>
-                <tr><td>Tone Transpose</td><td>${transText}</td></tr>
-                <tr><td>Tone Octave Shift</td><td>${octText}</td></tr>
-                <tr><td>Intelligent Harmony</td><td>${intelHarmText}</td></tr>
-            </table>
-          `;
+                    // Update variables for Active Settings
+                    tempToneTranspose = toneTranspose;
+                    tempToneEffectType = effectType;
+                    tempToneEffectLevel = effectLevel;
 
-                    // Process to update currently active settings
-                    tempToneTranspose = data[11 + 0x17];
-                    tempToneEffectType = data[11 + 0x15];
-                    tempToneEffectLevel = data[11 + 0x16];
+                    // 4. Call the rendering function
+                    renderToneCommon();
+                    
                     updateActiveSettings();
                 }
 
@@ -986,6 +980,39 @@ function renderSetup() {
             <strong>--- System Sound Settings ---</strong><br>
             System Effect Type: ${sysEffectTypeText}<br>
             System Effect Level: ${setupData.sysEffectLevel}
+        `;
+    }
+}
+
+// Dedicated function to render the Tone Common Area
+function renderToneCommon() {
+    if (!appState.toneCommon) return;
+
+    const tcData = appState.toneCommon;
+
+    // Format for screen display
+    const hdText = tcData.harmonyDrone === 0 ? "Harmony" : "Drone";
+    const transText = transposeMap[tcData.toneTranspose] || tcData.toneTranspose;
+    const octText = (tcData.octaveShift - 64) > 0 ? `+${tcData.octaveShift - 64}` : `${tcData.octaveShift - 64}`;
+    const effTypeText = effectTypeMap[tcData.effectType] || `Type ${tcData.effectType}`;
+    const intelHarmText = intelHarmonyMap[tcData.intelHarmony] || `Type ${tcData.intelHarmony}`;
+
+    // Write to Tone Common specific area
+    const toneCommonArea = document.getElementById("toneCommonArea");
+    if (toneCommonArea) {
+        toneCommonArea.innerHTML = `
+            <h3>Tone Common Settings</h3>
+            <table>
+                <tr><th>Parameter</th><th>Value</th></tr>
+                <tr><td>NAME (Tone Name)</td><td><strong>${tcData.nameStr}</strong></td></tr>
+                <tr><td>Harmony/Drone</td><td>${hdText}</td></tr>
+                <tr><td>Tone Level</td><td>${tcData.toneLevel}</td></tr>
+                <tr><td>Effect Type</td><td>${effTypeText}</td></tr>
+                <tr><td>Effect Level</td><td>${tcData.effectLevel}</td></tr>
+                <tr><td>Tone Transpose</td><td>${transText}</td></tr>
+                <tr><td>Tone Octave Shift</td><td>${octText}</td></tr>
+                <tr><td>Intelligent Harmony</td><td>${intelHarmText}</td></tr>
+            </table>
         `;
     }
 }
