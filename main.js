@@ -78,6 +78,10 @@
  * +--------------------------------------------------------------------+
 */
 
+// Object to manage application state
+const appState = {
+    setup: null
+};
 
 // Define tone name dictionary
 const presetToneDictionary = {
@@ -528,46 +532,38 @@ function onMIDISuccess(midiAccess) {
             if (isSetupData && data[9] === 0x00 && data[10] === 0x00) {
                 statusMessage.innerHTML = "Setup data read successfully!";
 
+                // 1. Extract data
                 const toneBsMsb = data[11];
                 const toneBsLsb = data[12];
                 const tonePc = data[13];
                 const favBank = data[14];
                 const favNumber = data[15];
+                const sysEffectTypeRaw = data[11 + 0x06];
+                const sysEffectLevel = data[11 + 0x07];
 
                 // Save acquired values to global variables as a starting point for Tone Up/Down
                 currentMsb = toneBsMsb;
                 currentLsb = toneBsLsb;
                 currentPc = tonePc;
 
-                // Retrieve tone name from dictionary
-                const toneKey = `${toneBsMsb}-${toneBsLsb}-${tonePc}`;
-                const toneName = presetToneDictionary[toneKey] || "Unknown Tone (or User Tone)";
+                // 2. Store extracted data into appState
+                appState.setup = {
+                    toneBsMsb: toneBsMsb,
+                    toneBsLsb: toneBsLsb,
+                    tonePc: tonePc,
+                    favBank: favBank,
+                    favNumber: favNumber,
+                    sysEffectTypeRaw: sysEffectTypeRaw,
+                    sysEffectLevel: sysEffectLevel
+                };
 
-                // --- Extraction of hidden area (Sound Settings) ---
-                const sysEffectTypeRaw = data[11 + 0x06];
-                const sysEffectLevel = data[11 + 0x07];
+                // (Existing process) Update variables for Active Settings
+                tempSysEffectType = sysEffectTypeRaw;
+                tempSysEffectLevel = sysEffectLevel;
 
-                // If value is 1 or more, subtract 1 to match dictionary (treat 0 as Off)
-                let sysEffectTypeText = "Off";
-                if (sysEffectTypeRaw > 0) {
-                    sysEffectTypeText = effectTypeMap[sysEffectTypeRaw - 1] || `Type ${sysEffectTypeRaw}`;
-                }
-
-                setupArea.innerHTML = `
-            <h3>Setup Information</h3>
-            Current Tone: <span class="tone-name">${toneName}</span><br><br>
-            Tone Bank MSB: ${toneBsMsb}<br>
-            Tone Bank LSB: ${toneBsLsb}<br>
-            Tone PC: ${tonePc} (Device Program Number: ${tonePc + 1})<br><br>
-            Favorite Bank Number: ${favBank} (Display: Bank ${favBank + 1})<br>
-            Favorite Number: ${favNumber} (Display: Number ${favNumber + 1})<br>
-            <strong>--- System Sound Settings ---</strong><br>
-            System Effect Type: ${sysEffectTypeText}<br>
-            System Effect Level: ${sysEffectLevel}
-          `;
-
-                tempSysEffectType = data[11 + 0x06];
-                tempSysEffectLevel = data[11 + 0x07];
+                // 3. Call the separated rendering function
+                renderSetup();
+                
                 updateActiveSettings();
             }
 
@@ -959,4 +955,37 @@ function onMIDISuccess(midiAccess) {
     toneSelect.addEventListener('change', () => {
         readSelectedButton.click();
     });
+}
+
+// Dedicated function to render the Setup Area
+function renderSetup() {
+    if (!appState.setup) return;
+
+    const setupData = appState.setup;
+    
+    // Process to retrieve tone name from dictionary is moved here
+    const toneKey = `${setupData.toneBsMsb}-${setupData.toneBsLsb}-${setupData.tonePc}`;
+    const toneName = presetToneDictionary[toneKey] || "Unknown Tone (or User Tone)";
+
+    let sysEffectTypeText = "Off";
+    if (setupData.sysEffectTypeRaw > 0) {
+        sysEffectTypeText = effectTypeMap[setupData.sysEffectTypeRaw - 1] || `Type ${setupData.sysEffectTypeRaw}`;
+    }
+
+    // Update the screen
+    const setupArea = document.getElementById("setupArea");
+    if (setupArea) {
+        setupArea.innerHTML = `
+            <h3>Setup Information</h3>
+            Current Tone: <span class="tone-name">${toneName}</span><br><br>
+            Tone Bank MSB: ${setupData.toneBsMsb}<br>
+            Tone Bank LSB: ${setupData.toneBsLsb}<br>
+            Tone PC: ${setupData.tonePc} (Device Program Number: ${setupData.tonePc + 1})<br><br>
+            Favorite Bank Number: ${setupData.favBank} (Display: Bank ${setupData.favBank + 1})<br>
+            Favorite Number: ${setupData.favNumber} (Display: Number ${setupData.favNumber + 1})<br>
+            <strong>--- System Sound Settings ---</strong><br>
+            System Effect Type: ${sysEffectTypeText}<br>
+            System Effect Level: ${setupData.sysEffectLevel}
+        `;
+    }
 }
