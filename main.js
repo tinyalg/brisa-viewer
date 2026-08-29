@@ -78,6 +78,14 @@
  * +--------------------------------------------------------------------+
 */
 
+// Object to manage application state
+const appState = {
+    setup: null,
+    systemCommon: null,
+    toneCommon: null,
+    tonePart: null,
+    assigns: {}
+};
 
 // Define tone name dictionary
 const presetToneDictionary = {
@@ -193,14 +201,6 @@ const assignDefs = [
     { id: "motionTilt", name: "Motion Tilt Assign", chkId: "chkMotionTilt", reqSize: 0x1C, sysSourceOffset: 0x36, sysAddr: 0x18, toneAddr: 0x09, areaElement: () => motionTiltAssignArea }
 ];
 
-// Object to hold assign states
-let assignStates = {};
-function initAssignStates() {
-    assignDefs.forEach(def => {
-        assignStates[def.id] = { source: null, sysData: null, toneData: null };
-    });
-}
-
 // Get display areas and buttons
 const statusMessage = document.getElementById("statusMessage");
 const setupArea = document.getElementById("setupArea");
@@ -289,8 +289,15 @@ function clearActiveSettingsData() {
     tempToneEffectType = null;
     tempToneEffectLevel = null;
 
-    // Clear assign variables
-    initAssignStates();
+    // appStateの初期化（Assignの枠もここで作ります）
+    appState.setup = null;
+    appState.toneCommon = null;
+    appState.systemCommon = null;
+    appState.tonePart = null;
+    
+    assignDefs.forEach(def => {
+        appState.assigns[def.id] = { source: null, sysData: null, toneData: null };
+    });
 
     const area = document.getElementById("activeSettingsArea");
     if (area) area.innerHTML = "";
@@ -342,7 +349,7 @@ function updateActiveSettings() {
         // Do not display if unchecked
         if (!document.getElementById(def.chkId).checked) return;
 
-        const state = assignStates[def.id];
+        const state = appState.assigns[def.id];
         let activeText = "Waiting for data...";
         let sourceName = "-";
 
@@ -453,6 +460,10 @@ function onMIDISuccess(midiAccess) {
     toneDownButton.disabled = false;
     toneUpButton.disabled = false;
 
+    const connectBtn = document.getElementById('connectButton');
+    connectBtn.textContent = "Connected";
+    connectBtn.disabled = true;
+
     // Global transmission queue management (for 2-step requests)
     let globalRequestQueue = [];
     let isSendingRequests = false;
@@ -528,46 +539,38 @@ function onMIDISuccess(midiAccess) {
             if (isSetupData && data[9] === 0x00 && data[10] === 0x00) {
                 statusMessage.innerHTML = "Setup data read successfully!";
 
+                // 1. Extract data
                 const toneBsMsb = data[11];
                 const toneBsLsb = data[12];
                 const tonePc = data[13];
                 const favBank = data[14];
                 const favNumber = data[15];
+                const sysEffectTypeRaw = data[11 + 0x06];
+                const sysEffectLevel = data[11 + 0x07];
 
                 // Save acquired values to global variables as a starting point for Tone Up/Down
                 currentMsb = toneBsMsb;
                 currentLsb = toneBsLsb;
                 currentPc = tonePc;
 
-                // Retrieve tone name from dictionary
-                const toneKey = `${toneBsMsb}-${toneBsLsb}-${tonePc}`;
-                const toneName = presetToneDictionary[toneKey] || "Unknown Tone (or User Tone)";
+                // 2. Store extracted data into appState
+                appState.setup = {
+                    toneBsMsb: toneBsMsb,
+                    toneBsLsb: toneBsLsb,
+                    tonePc: tonePc,
+                    favBank: favBank,
+                    favNumber: favNumber,
+                    sysEffectTypeRaw: sysEffectTypeRaw,
+                    sysEffectLevel: sysEffectLevel
+                };
 
-                // --- Extraction of hidden area (Sound Settings) ---
-                const sysEffectTypeRaw = data[11 + 0x06];
-                const sysEffectLevel = data[11 + 0x07];
+                // (Existing process) Update variables for Active Settings
+                tempSysEffectType = sysEffectTypeRaw;
+                tempSysEffectLevel = sysEffectLevel;
 
-                // If value is 1 or more, subtract 1 to match dictionary (treat 0 as Off)
-                let sysEffectTypeText = "Off";
-                if (sysEffectTypeRaw > 0) {
-                    sysEffectTypeText = effectTypeMap[sysEffectTypeRaw - 1] || `Type ${sysEffectTypeRaw}`;
-                }
-
-                setupArea.innerHTML = `
-            <h3>Setup Information</h3>
-            Current Tone: <span class="tone-name">${toneName}</span><br><br>
-            Tone Bank MSB: ${toneBsMsb}<br>
-            Tone Bank LSB: ${toneBsLsb}<br>
-            Tone PC: ${tonePc} (Device Program Number: ${tonePc + 1})<br><br>
-            Favorite Bank Number: ${favBank} (Display: Bank ${favBank + 1})<br>
-            Favorite Number: ${favNumber} (Display: Number ${favNumber + 1})<br>
-            <strong>--- System Sound Settings ---</strong><br>
-            System Effect Type: ${sysEffectTypeText}<br>
-            System Effect Level: ${sysEffectLevel}
-          `;
-
-                tempSysEffectType = data[11 + 0x06];
-                tempSysEffectLevel = data[11 + 0x07];
+                // 3. Call the separated rendering function
+                renderSetup();
+                
                 updateActiveSettings();
             }
 
@@ -577,109 +580,18 @@ function onMIDISuccess(midiAccess) {
             else if (isSystemData) {
                 // System Common (Address 00 00 00)
                 if (data[9] === 0x00 && data[10] === 0x00) {
-                    const systemCommonArea = document.getElementById("systemCommonArea");
-                    if (!systemCommonArea) return;
-
                     statusMessage.innerHTML = "System Common data read successfully!";
 
-                    // Dictionary object defining known parameters
-                    const sysCommonMap = {
-                        0x00: { name: "Display Contrast" },
-                        0x01: { name: "Auto Display Off", map: autoDisplayOffMap },
-                        0x02: { name: "Auto Power Off", map: autoPowerOffMap },
-                        0x03: { name: "Menu Startup Mode", map: menuStartupMap },
-                        0x04: { name: "Edit Confirm", map: onOffMap },
-                        0x05: { name: "Favorite Shortcut", map: onOffMap },
-                        0x06: { name: "Phones Mono/Stereo", map: phonesMonoStereoMap },
-                        0x07: { name: "Speaker Out", map: speakerOutMap },
-                        0x08: { name: "Phones Volume" },
-                        0x09: { name: "Speaker Volume" },
-                        0x0E: { name: "Transpose Source", map: transposeSourceMap },
-                        0x0F: { name: "Transpose", map: transposeMap },
-                        0x10: { name: "Fingering Mode", map: fingeringModeMap },
-                        0x11: { name: "Key Delay" },
-                        0x12: { name: "Hold Mode", map: onOffMap },
-                        0x14: { name: "Octave Mode", map: octaveModeMap },
-                        0x15: { name: "Bend Range", special: (val) => val === 0 ? "Follow Tone" : val - 1 },
-                        0x30: { name: "S1 Assign Source", map: assignSourceMap },
-                        0x31: { name: "S2 Assign Source", map: assignSourceMap },
-                        0x32: { name: "Thumb Assign Source", map: assignSourceMap },
-                        0x33: { name: "Breath Assign Source", map: assignSourceMap },
-                        0x35: { name: "Motion Roll Assign Source", map: assignSourceMap },
-                        0x36: { name: "Motion Tilt Assign Source", map: assignSourceMap },
-                        0x38: { name: "Motion Roll Mode", map: motionModeMap },
-                        0x39: { name: "Motion Tilt Mode", map: motionModeMap },
-                        0x3E: { name: "Motion Roll Vib Sense" },
-                        0x3F: { name: "Motion Tilt Vib Sense" },
-                        0x40: { name: "Breath Offset" },
-                        0x41: { name: "Breath Curve" },
-                        0x46: { name: "Harmonics Center", map: harmonicsCenterMap },
-                        0x48: { name: "Harmonics Delay" },
-                        0x4A: { name: "Harmonics Polarity", map: harmonicsPolarityMap },
-                        0x65: { name: "MIDI Tx Channel", special: (val) => val + 1 },
-                        0x66: { name: "MIDI Tx Velocity", special: (val) => val === 0 ? "Tongued" : `Fixed ${val}` }
+                    // 1. Extract the raw payload data (excluding header, checksum, EOX)
+                    // (Address offset starts at index 11)
+                    const payload = Array.from(data.slice(11, data.length - 2));
+
+                    // 2. Store raw payload into appState
+                    appState.systemCommon = {
+                        payload: payload
                     };
 
-                    let tableHtml = `
-                        <h3>System Common Settings</h3>
-                  <table>
-                            <tr><th>Address (Offset)</th><th>Parameter</th><th>Value</th></tr>
-              `;
-
-                    // Guard processing to loop within received data length
-                    // Exclude 13 bytes total: 11-byte header + checksum + EOX
-                    const dataLimit = Math.min(0x66, data.length - 13);
-
-                    for (let offset = 0; offset <= dataLimit; offset++) {
-                        // Use highly compatible slice instead of padStart
-                        const hexOffset = ("0" + offset.toString(16).toUpperCase()).slice(-2);
-                        const rawValue = data[11 + offset];
-
-                        let paramName = "Unknown (Not Documented)";
-                        let displayValue = rawValue;
-
-                        // Set name and converted value if known parameter
-                        if (sysCommonMap[offset]) {
-                            paramName = sysCommonMap[offset].name;
-                            if (sysCommonMap[offset].special) {
-                                displayValue = sysCommonMap[offset].special(rawValue);
-                            } else if (sysCommonMap[offset].map) {
-                                displayValue = sysCommonMap[offset].map[rawValue] !== undefined ? sysCommonMap[offset].map[rawValue] : rawValue;
-                            }
-                        }
-
-                        // Special processing for multi-byte (nibble data)
-                        if (offset === 0x0A || offset === 0x0B || offset === 0x0C) {
-                            paramName = "Master Tune (Data part)";
-                        } else if (offset === 0x0D) {
-                            paramName = "Master Tune (Calculated)";
-                            const rawMasterTune = (data[11 + 0x0A] << 12) | (data[11 + 0x0B] << 8) | (data[11 + 0x0C] << 4) | data[11 + 0x0D];
-                            displayValue = rawMasterTune - 1024;
-                        } else if (offset === 0x3A) {
-                            paramName = "Motion Roll Center (Data part)";
-                        } else if (offset === 0x3B) {
-                            paramName = "Motion Roll Center (Calculated)";
-                            const rawRollCenter = (data[11 + 0x3A] << 4) | data[11 + 0x3B];
-                            displayValue = rawRollCenter - 128;
-                        } else if (offset === 0x3C) {
-                            paramName = "Motion Tilt Center (Data part)";
-                        } else if (offset === 0x3D) {
-                            paramName = "Motion Tilt Center (Calculated)";
-                            const rawTiltCenter = (data[11 + 0x3C] << 4) | data[11 + 0x3D];
-                            displayValue = rawTiltCenter - 128;
-                        }
-
-                        if (paramName === "Unknown (Not Documented)") {
-                            continue;
-                        }
-
-                        tableHtml += `<tr><td>00 ${hexOffset}</td><td>${paramName}</td><td>${displayValue}</td></tr>`;
-                    }
-
-                    tableHtml += `</table>`;
-                    systemCommonArea.innerHTML = tableHtml;
-
-                    // Process to update currently active settings
+                    // (Existing process) Process to update currently active settings
                     tempSysTransposeSource = data[11 + 0x0E];
                     tempSysTranspose = data[11 + 0x0F];
 
@@ -688,8 +600,8 @@ function onMIDISuccess(midiAccess) {
                     let activeAssignRequests = [];
 
                     assignDefs.forEach(def => {
-                        const sourceVal = data[11 + def.sysSourceOffset];
-                        assignStates[def.id].source = sourceVal;
+                        const sourceVal = payload[def.sysSourceOffset];
+                        appState.assigns[def.id].source = sourceVal; // assignStatesから変更
 
                         // In Active Settings mode, request only "necessary data" additionally based on the evaluation result
                         if (isToneSelectActive && document.getElementById(def.chkId).checked) {
@@ -697,9 +609,6 @@ function onMIDISuccess(midiAccess) {
                                 activeAssignRequests.push([0x00, 0x00, def.sysAddr, 0x00, 0x00, 0x00, 0x00, def.reqSize]);
                             } else if (sourceVal === 2) {
                                 activeAssignRequests.push([0x01, 0x00, def.toneAddr, 0x00, 0x00, 0x00, 0x00, def.reqSize]);
-                            } else if (sourceVal === 0) {
-                                // Thoughtful UI: Do nothing if OFF, but show helpful message in details area
-                                def.areaElement().innerHTML = `<h3>${def.name} Settings</h3><p>Currently set to OFF (Disabled).</p>`;
                             }
                         }
                     });
@@ -708,17 +617,19 @@ function onMIDISuccess(midiAccess) {
                     if (activeAssignRequests.length > 0) {
                         enqueueRequests(activeAssignRequests);
                     }
+                    // 3. Call the separated rendering function
+                    renderSystemCommon();
 
                     updateActiveSettings();
                 }
 
                 // System side assign data reception processing
                 if (data[10] === 0x00 && data[9] !== 0x00) {
-                    const assignData = data.slice(11, data.length - 2);
+                    const assignData = Array.from(data.slice(11, data.length - 2));
                     assignDefs.forEach(def => {
                         if (data[9] === def.sysAddr) {
-                            assignStates[def.id].sysData = assignData;
-                            renderAssignData("System " + def.name, def.areaElement(), assignData);
+                            appState.assigns[def.id].sysData = assignData;
+                            renderAssignArea(def.id, "System"); // 専用の描画関数を呼ぶ
                             updateActiveSettings();
                         }
                     });
@@ -733,13 +644,13 @@ function onMIDISuccess(midiAccess) {
                 if (data[9] === 0x00 && data[10] === 0x00) {
                     statusMessage.innerHTML = "Tone Common data read successfully!";
 
-                    // Decode 16-character tone name (from ASCII to string)
+                    // 1. Decode 16-character tone name (from ASCII to string)
                     let nameStr = "";
                     for (let i = 0; i < 16; i++) {
                         nameStr += String.fromCharCode(data[11 + i]);
                     }
 
-                    // Extract parameters according to specs (11 is the offset for data start position)
+                    // 2. Extract parameters according to specs (11 is the offset for data start position)
                     const harmonyDrone = data[11 + 0x12];
                     const toneLevel = data[11 + 0x14];
                     const effectType = data[11 + 0x15];
@@ -748,44 +659,37 @@ function onMIDISuccess(midiAccess) {
                     const octaveShift = data[11 + 0x18];
                     const intelHarmony = data[11 + 0x1C];
 
-                    // Format for screen display
-                    const hdText = harmonyDrone === 0 ? "Harmony" : "Drone";
-                    const transText = transposeMap[toneTranspose] || toneTranspose;
-                    const octText = (octaveShift - 64) > 0 ? `+${octaveShift - 64}` : `${octaveShift - 64}`;
-                    const effTypeText = effectTypeMap[effectType] || `Type ${effectType}`;
-                    const intelHarmText = intelHarmonyMap[intelHarmony] || `Type ${intelHarmony}`;
+                    // 3. Store data into appState
+                    appState.toneCommon = {
+                        nameStr: nameStr,
+                        harmonyDrone: harmonyDrone,
+                        toneLevel: toneLevel,
+                        effectType: effectType,
+                        effectLevel: effectLevel,
+                        toneTranspose: toneTranspose,
+                        octaveShift: octaveShift,
+                        intelHarmony: intelHarmony
+                    };
 
-                    // Write to Tone Common specific area
-                    toneCommonArea.innerHTML = `
-                      <h3>Tone Common Settings</h3>
-            <table>
-                          <tr><th>Parameter</th><th>Value</th></tr>
-                          <tr><td>NAME (Tone Name)</td><td><strong>${nameStr}</strong></td></tr>
-                <tr><td>Harmony/Drone</td><td>${hdText}</td></tr>
-                <tr><td>Tone Level</td><td>${toneLevel}</td></tr>
-                <tr><td>Effect Type</td><td>${effTypeText}</td></tr>
-                <tr><td>Effect Level</td><td>${effectLevel}</td></tr>
-                <tr><td>Tone Transpose</td><td>${transText}</td></tr>
-                <tr><td>Tone Octave Shift</td><td>${octText}</td></tr>
-                <tr><td>Intelligent Harmony</td><td>${intelHarmText}</td></tr>
-            </table>
-          `;
+                    // Update variables for Active Settings
+                    tempToneTranspose = toneTranspose;
+                    tempToneEffectType = effectType;
+                    tempToneEffectLevel = effectLevel;
 
-                    // Process to update currently active settings
-                    tempToneTranspose = data[11 + 0x17];
-                    tempToneEffectType = data[11 + 0x15];
-                    tempToneEffectLevel = data[11 + 0x16];
+                    // 4. Call the rendering function
+                    renderToneCommon();
+                    
                     updateActiveSettings();
                 }
 
                 // Common Assign processing (S1:01, S2:02, Thumb:03, Breath:04, Motion Tilt:08)
                 else if (((data[9] >= 0x01 && data[9] <= 0x04) || data[9] === 0x08 || data[9] === 0x09) && data[10] === 0x00) {
-                    const assignData = data.slice(11, data.length - 2);
+                    const assignData = Array.from(data.slice(11, data.length - 2));
 
                     assignDefs.forEach(def => {
                         if (data[9] === def.toneAddr) {
-                            assignStates[def.id].toneData = assignData;
-                            renderAssignData("Tone " + def.name, def.areaElement(), assignData);
+                            appState.assigns[def.id].toneData = assignData;
+                            renderAssignArea(def.id, "Tone");
                             updateActiveSettings();
                         }
                     });
@@ -795,7 +699,7 @@ function onMIDISuccess(midiAccess) {
                 else if (data[9] === 0x30 && data[10] === 0x00) {
                     statusMessage.innerHTML = "Tone Part data read successfully!";
 
-                    // Extract each parameter
+                    // 1. Extract each parameter
                     const partLevel = data[11 + 0x05];
                     const partPan = data[11 + 0x07];
                     const partCoarseTune = data[11 + 0x08];
@@ -803,7 +707,6 @@ function onMIDISuccess(midiAccess) {
 
                     // Portamento Switch (0=OFF, 1=ON, 2=TONE)
                     const portaSw = data[11 + 0x0C];
-                    const portaSwText = portaSw === 0 ? "OFF" : (portaSw === 1 ? "ON" : "TONE");
 
                     // Portamento Time (Nibble data: Combine upper 4 bits and lower 4 bits)
                     const portaTime = (data[11 + 0x0D] << 4) + data[11 + 0x0E];
@@ -823,30 +726,29 @@ function onMIDISuccess(midiAccess) {
                     const reverb = data[11 + 0x23];
                     const delay = data[11 + 0x28];
 
-                    // Output as a table on the screen
-                    tonePartArea.innerHTML = `
-                      <h3>Tone Part Settings</h3>
-            <table>
-                <tr><th>Parameter</th><th>Value</th></tr>
-                <tr><td>Part Level</td><td>${partLevel}</td></tr>
-                <tr><td>Part Pan</td><td>${partPan}</td></tr>
-                <tr><td>Part Coarse Tune</td><td>${partCoarseTune}</td></tr>
-                <tr><td>Part Fine Tune</td><td>${partFineTune}</td></tr>
-                <tr><td>Portamento Switch</td><td>${portaSwText}</td></tr>
-                <tr><td>Portamento Time</td><td>${portaTime}</td></tr>
-                <tr><td>Cutoff Offset</td><td>${cutoff > 0 ? '+' + cutoff : cutoff}</td></tr>
-                <tr><td>Resonance Offset</td><td>${reso > 0 ? '+' + reso : reso}</td></tr>
-                <tr><td>AttackTime Offset</td><td>${attack > 0 ? '+' + attack : attack}</td></tr>
-                <tr><td>DecayTime Offset</td><td>${decay > 0 ? '+' + decay : decay}</td></tr>
-                <tr><td>ReleaseTime Offset</td><td>${release > 0 ? '+' + release : release}</td></tr>
-                <tr><td>Vibrato Rate</td><td>${vibRate > 0 ? '+' + vibRate : vibRate}</td></tr>
-                <tr><td>Vibrato Depth</td><td>${vibDepth > 0 ? '+' + vibDepth : vibDepth}</td></tr>
-                <tr><td>Vibrato Delay</td><td>${vibDelay > 0 ? '+' + vibDelay : vibDelay}</td></tr>
-                <tr><td>Chorus Send</td><td>${chorus}</td></tr>
-                <tr><td>Reverb Send</td><td>${reverb}</td></tr>
-                <tr><td>Delay Send</td><td>${delay}</td></tr>
-            </table>
-          `;
+                    // 2. Store extracted data into appState
+                    appState.tonePart = {
+                        partLevel: partLevel,
+                        partPan: partPan,
+                        partCoarseTune: partCoarseTune,
+                        partFineTune: partFineTune,
+                        portaSw: portaSw,
+                        portaTime: portaTime,
+                        cutoff: cutoff,
+                        reso: reso,
+                        attack: attack,
+                        decay: decay,
+                        release: release,
+                        vibRate: vibRate,
+                        vibDepth: vibDepth,
+                        vibDelay: vibDelay,
+                        chorus: chorus,
+                        reverb: reverb,
+                        delay: delay
+                    };
+
+                    // 3. Call the separated rendering function
+                    renderTonePart();
                 }
             }
         }
@@ -914,6 +816,11 @@ function onMIDISuccess(midiAccess) {
             initialRequests.push([0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x67]); // System Common
             initialRequests.push([0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1D]); // Tone Common
             initialRequests.push([0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10]); // Setup
+            
+            // Add request for Tone Part if checked
+            if (document.getElementById("chkTonePart").checked) {
+                initialRequests.push([0x01, 0x00, 0x30, 0x00, 0x00, 0x00, 0x00, 0x29]); 
+            }
         } else {
             if (document.getElementById("chkCommon").checked) {
                 if (msb === 0x00) {
@@ -959,4 +866,259 @@ function onMIDISuccess(midiAccess) {
     toneSelect.addEventListener('change', () => {
         readSelectedButton.click();
     });
+}
+
+// Dedicated function to render the Setup Area
+function renderSetup() {
+    if (!appState.setup) return;
+
+    const setupData = appState.setup;
+    
+    // Process to retrieve tone name from dictionary is moved here
+    const toneKey = `${setupData.toneBsMsb}-${setupData.toneBsLsb}-${setupData.tonePc}`;
+    const toneName = presetToneDictionary[toneKey] || "Unknown Tone (or User Tone)";
+
+    let sysEffectTypeText = "Off";
+    if (setupData.sysEffectTypeRaw > 0) {
+        sysEffectTypeText = effectTypeMap[setupData.sysEffectTypeRaw - 1] || `Type ${setupData.sysEffectTypeRaw}`;
+    }
+
+    // Update the screen
+    const setupArea = document.getElementById("setupArea");
+    if (setupArea) {
+        setupArea.innerHTML = `
+            <h3>Setup Information</h3>
+            Current Tone: <span class="tone-name">${toneName}</span><br><br>
+            Tone Bank MSB: ${setupData.toneBsMsb}<br>
+            Tone Bank LSB: ${setupData.toneBsLsb}<br>
+            Tone PC: ${setupData.tonePc} (Device Program Number: ${setupData.tonePc + 1})<br><br>
+            Favorite Bank Number: ${setupData.favBank} (Display: Bank ${setupData.favBank + 1})<br>
+            Favorite Number: ${setupData.favNumber} (Display: Number ${setupData.favNumber + 1})<br>
+            <strong>--- System Sound Settings ---</strong><br>
+            System Effect Type: ${sysEffectTypeText}<br>
+            System Effect Level: ${setupData.sysEffectLevel}
+        `;
+    }
+}
+
+// Dedicated function to render the System Common Area
+function renderSystemCommon() {
+    if (!appState.systemCommon) return;
+
+    const payload = appState.systemCommon.payload;
+    const systemCommonArea = document.getElementById("systemCommonArea");
+    if (!systemCommonArea) return;
+
+    // Dictionary object defining known parameters
+    const sysCommonMap = {
+        0x00: { name: "Display Contrast" },
+        0x01: { name: "Auto Display Off", map: autoDisplayOffMap },
+        0x02: { name: "Auto Power Off", map: autoPowerOffMap },
+        0x03: { name: "Menu Startup Mode", map: menuStartupMap },
+        0x04: { name: "Edit Confirm", map: onOffMap },
+        0x05: { name: "Favorite Shortcut", map: onOffMap },
+        0x06: { name: "Phones Mono/Stereo", map: phonesMonoStereoMap },
+        0x07: { name: "Speaker Out", map: speakerOutMap },
+        0x08: { name: "Phones Volume" },
+        0x09: { name: "Speaker Volume" },
+        0x0E: { name: "Transpose Source", map: transposeSourceMap },
+        0x0F: { name: "Transpose", map: transposeMap },
+        0x10: { name: "Fingering Mode", map: fingeringModeMap },
+        0x11: { name: "Key Delay" },
+        0x12: { name: "Hold Mode", map: onOffMap },
+        0x14: { name: "Octave Mode", map: octaveModeMap },
+        0x15: { name: "Bend Range", special: (val) => val === 0 ? "Follow Tone" : val - 1 },
+        0x30: { name: "S1 Assign Source", map: assignSourceMap },
+        0x31: { name: "S2 Assign Source", map: assignSourceMap },
+        0x32: { name: "Thumb Assign Source", map: assignSourceMap },
+        0x33: { name: "Breath Assign Source", map: assignSourceMap },
+        0x35: { name: "Motion Roll Assign Source", map: assignSourceMap },
+        0x36: { name: "Motion Tilt Assign Source", map: assignSourceMap },
+        0x38: { name: "Motion Roll Mode", map: motionModeMap },
+        0x39: { name: "Motion Tilt Mode", map: motionModeMap },
+        0x3E: { name: "Motion Roll Vib Sense" },
+        0x3F: { name: "Motion Tilt Vib Sense" },
+        0x40: { name: "Breath Offset" },
+        0x41: { name: "Breath Curve" },
+        0x46: { name: "Harmonics Center", map: harmonicsCenterMap },
+        0x48: { name: "Harmonics Delay" },
+        0x4A: { name: "Harmonics Polarity", map: harmonicsPolarityMap },
+        0x65: { name: "MIDI Tx Channel", special: (val) => val + 1 },
+        0x66: { name: "MIDI Tx Velocity", special: (val) => val === 0 ? "Tongued" : `Fixed ${val}` }
+    };
+
+    let tableHtml = `
+        <h3>System Common Settings</h3>
+        <table>
+            <tr><th>Address (Offset)</th><th>Parameter</th><th>Value</th></tr>
+    `;
+
+    // Guard processing to loop within received data length
+    const dataLimit = Math.min(0x66, payload.length - 1);
+
+    for (let offset = 0; offset <= dataLimit; offset++) {
+        const hexOffset = ("0" + offset.toString(16).toUpperCase()).slice(-2);
+        const rawValue = payload[offset];
+
+        let paramName = "Unknown (Not Documented)";
+        let displayValue = rawValue;
+
+        // Set name and converted value if known parameter
+        if (sysCommonMap[offset]) {
+            paramName = sysCommonMap[offset].name;
+            if (sysCommonMap[offset].special) {
+                displayValue = sysCommonMap[offset].special(rawValue);
+            } else if (sysCommonMap[offset].map) {
+                displayValue = sysCommonMap[offset].map[rawValue] !== undefined ? sysCommonMap[offset].map[rawValue] : rawValue;
+            }
+        }
+
+        // Special processing for multi-byte (nibble data)
+        if (offset === 0x0A || offset === 0x0B || offset === 0x0C) {
+            paramName = "Master Tune (Data part)";
+        } else if (offset === 0x0D) {
+            paramName = "Master Tune (Calculated)";
+            const rawMasterTune = (payload[0x0A] << 12) | (payload[0x0B] << 8) | (payload[0x0C] << 4) | payload[0x0D];
+            displayValue = rawMasterTune - 1024;
+        } else if (offset === 0x3A) {
+            paramName = "Motion Roll Center (Data part)";
+        } else if (offset === 0x3B) {
+            paramName = "Motion Roll Center (Calculated)";
+            const rawRollCenter = (payload[0x3A] << 4) | payload[0x3B];
+            displayValue = rawRollCenter - 128;
+        } else if (offset === 0x3C) {
+            paramName = "Motion Tilt Center (Data part)";
+        } else if (offset === 0x3D) {
+            paramName = "Motion Tilt Center (Calculated)";
+            const rawTiltCenter = (payload[0x3C] << 4) | payload[0x3D];
+            displayValue = rawTiltCenter - 128;
+        }
+
+        if (paramName === "Unknown (Not Documented)") {
+            continue;
+        }
+
+        tableHtml += `<tr><td>00 ${hexOffset}</td><td>${paramName}</td><td>${displayValue}</td></tr>`;
+    }
+
+    tableHtml += `</table>`;
+    systemCommonArea.innerHTML = tableHtml;
+}
+
+// Dedicated function to render the Tone Common Area
+function renderToneCommon() {
+    if (!appState.toneCommon) return;
+
+    const tcData = appState.toneCommon;
+
+    // Format for screen display
+    const hdText = tcData.harmonyDrone === 0 ? "Harmony" : "Drone";
+    const transText = transposeMap[tcData.toneTranspose] || tcData.toneTranspose;
+    const octText = (tcData.octaveShift - 64) > 0 ? `+${tcData.octaveShift - 64}` : `${tcData.octaveShift - 64}`;
+    const effTypeText = effectTypeMap[tcData.effectType] || `Type ${tcData.effectType}`;
+    const intelHarmText = intelHarmonyMap[tcData.intelHarmony] || `Type ${tcData.intelHarmony}`;
+
+    // Write to Tone Common specific area
+    const toneCommonArea = document.getElementById("toneCommonArea");
+    if (toneCommonArea) {
+        toneCommonArea.innerHTML = `
+            <h3>Tone Common Settings</h3>
+            <table>
+                <tr><th>Parameter</th><th>Value</th></tr>
+                <tr><td>NAME (Tone Name)</td><td><strong>${tcData.nameStr}</strong></td></tr>
+                <tr><td>Harmony/Drone</td><td>${hdText}</td></tr>
+                <tr><td>Tone Level</td><td>${tcData.toneLevel}</td></tr>
+                <tr><td>Effect Type</td><td>${effTypeText}</td></tr>
+                <tr><td>Effect Level</td><td>${tcData.effectLevel}</td></tr>
+                <tr><td>Tone Transpose</td><td>${transText}</td></tr>
+                <tr><td>Tone Octave Shift</td><td>${octText}</td></tr>
+                <tr><td>Intelligent Harmony</td><td>${intelHarmText}</td></tr>
+            </table>
+        `;
+    }
+}
+
+// Dedicated function to render the Tone Part Area
+function renderTonePart() {
+    if (!appState.tonePart) return;
+
+    const tpData = appState.tonePart;
+
+    // Formatting for display
+    const portaSwText = tpData.portaSw === 0 ? "OFF" : (tpData.portaSw === 1 ? "ON" : "TONE");
+    
+    // Output as a table on the screen
+    const tonePartArea = document.getElementById("tonePartArea");
+    if (tonePartArea) {
+        tonePartArea.innerHTML = `
+            <h3>Tone Part Settings</h3>
+            <table>
+                <tr><th>Parameter</th><th>Value</th></tr>
+                <tr><td>Part Level</td><td>${tpData.partLevel}</td></tr>
+                <tr><td>Part Pan</td><td>${tpData.partPan}</td></tr>
+                <tr><td>Part Coarse Tune</td><td>${tpData.partCoarseTune}</td></tr>
+                <tr><td>Part Fine Tune</td><td>${tpData.partFineTune}</td></tr>
+                <tr><td>Portamento Switch</td><td>${portaSwText}</td></tr>
+                <tr><td>Portamento Time</td><td>${tpData.portaTime}</td></tr>
+                <tr><td>Cutoff Offset</td><td>${tpData.cutoff > 0 ? '+' + tpData.cutoff : tpData.cutoff}</td></tr>
+                <tr><td>Resonance Offset</td><td>${tpData.reso > 0 ? '+' + tpData.reso : tpData.reso}</td></tr>
+                <tr><td>AttackTime Offset</td><td>${tpData.attack > 0 ? '+' + tpData.attack : tpData.attack}</td></tr>
+                <tr><td>DecayTime Offset</td><td>${tpData.decay > 0 ? '+' + tpData.decay : tpData.decay}</td></tr>
+                <tr><td>ReleaseTime Offset</td><td>${tpData.release > 0 ? '+' + tpData.release : tpData.release}</td></tr>
+                <tr><td>Vibrato Rate</td><td>${tpData.vibRate > 0 ? '+' + tpData.vibRate : tpData.vibRate}</td></tr>
+                <tr><td>Vibrato Depth</td><td>${tpData.vibDepth > 0 ? '+' + tpData.vibDepth : tpData.vibDepth}</td></tr>
+                <tr><td>Vibrato Delay</td><td>${tpData.vibDelay > 0 ? '+' + tpData.vibDelay : tpData.vibDelay}</td></tr>
+                <tr><td>Chorus Send</td><td>${tpData.chorus}</td></tr>
+                <tr><td>Reverb Send</td><td>${tpData.reverb}</td></tr>
+                <tr><td>Delay Send</td><td>${tpData.delay}</td></tr>
+            </table>
+        `;
+    }
+}
+
+// Dedicated function to render Assign Areas
+function renderAssignArea(defId, prefix) {
+    const def = assignDefs.find(d => d.id === defId);
+    const state = appState.assigns[defId];
+    const targetArea = def.areaElement();
+    if (!targetArea || !def || !state) return;
+
+    // System Source が 0 (OFF) の場合の描画
+    if (state.source === 0) {
+        targetArea.innerHTML = `<h3>${def.name} Settings</h3><p>Currently set to OFF (Disabled).</p>`;
+        return;
+    }
+
+    const assignData = prefix === "System" ? state.sysData : state.toneData;
+    if (!assignData) return;
+
+    statusMessage.innerHTML = `${prefix} ${def.name} data read successfully!`;
+    const setCount = assignData.length / 7;
+    let html = `<h3>${prefix} ${def.name} Settings</h3>`;
+
+    for (let i = 0; i < setCount; i++) {
+        const offset = i * 7;
+        const funcVal = assignData[offset + 0];
+        const inMin = assignData[offset + 1];
+        const inMax = assignData[offset + 2];
+        const outMin = assignData[offset + 3];
+        const outMax = assignData[offset + 4];
+        const modeVal = assignData[offset + 5];
+        const curveVal = assignData[offset + 6];
+
+        html += `
+        <h4>Assign ${i + 1}</h4>
+        <table>
+            <tr><th>Parameter</th><th>Value</th></tr>
+            <tr><td>Function</td><td>${assignFunctionList[funcVal] || funcVal}</td></tr>
+            <tr><td>Input Min</td><td>${inMin}</td></tr>
+            <tr><td>Input Max</td><td>${inMax}</td></tr>
+            <tr><td>Output Min</td><td>${outMin}</td></tr>
+            <tr><td>Output Max</td><td>${outMax}</td></tr>
+            <tr><td>Mode</td><td>${modeList[modeVal] || modeVal}</td></tr>
+            <tr><td>Curve</td><td>${curveList[curveVal] || curveVal}</td></tr>
+        </table>
+        `;
+    }
+    targetArea.innerHTML = html;
 }
