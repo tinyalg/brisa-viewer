@@ -1,68 +1,76 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <title>Active Settings Viewer for AE Brisa | TinyAlg</title>
     <link rel="stylesheet" href="style.css">
 </head>
+
 <body>
     <div class="app-container">
-    <h1>Active Settings Viewer for Aerophone Brisa</h1>
-        <p class="description">Read current information and settings from your AE-BRISA.</p>
-        
+        <h1>Active Settings Viewer for Aerophone Brisa</h1>
+        <p class="description">
+            Read current information from your AE-BRISA.<br>
+            Automatically calculates and displays currently active settings based on the reference manual's priority rules.<br>
+            <a href="https://github.com/tinyalg/brisa-viewer" target="_blank" rel="noopener noreferrer">View details and instructions on GitHub</a>
+        </p>
         <!-- Connection and Status -->
         <div class="status-section">
             <button id="connectButton" class="btn-connect">Connect to MIDI Device</button>
             <div id="statusMessage" class="status-box">Waiting for connection...</div>
         </div>
-    
+
         <!-- Control Panel -->
         <div class="control-panel">
             <!-- Tone Selection Area -->
             <div class="control-group tone-selection-group">
                 <label for="toneSelect" class="section-label">Target Tone:</label>
-        <select id="toneSelect">
+                <select id="toneSelect">
                     <!-- Populated by JavaScript -->
-        </select>
+                </select>
                 <div class="tone-buttons">
                     <button id="toneDownButton" disabled>Tone Down</button>
                     <button id="toneUpButton" disabled>Tone Up</button>
                 </div>
-    </div>
+            </div>
 
             <!-- Read Options Area -->
             <div class="control-group read-options-group">
-                <span class="section-label">Data to Read:</span>
-                <div class="checkbox-grid">
-        <label><input type="checkbox" id="chkSetup" checked> Setup</label>
-                    <label><input type="checkbox" id="chkCommon" checked> Common</label>
-        <label><input type="checkbox" id="chkS1"> S1 Assign</label>
-        <label><input type="checkbox" id="chkS2"> S2 Assign</label>
-        <label><input type="checkbox" id="chkThumb"> Thumb Assign</label>
-        <label><input type="checkbox" id="chkBreath"> Breath Assign</label>
-        <label><input type="checkbox" id="chkMotionTilt"> Motion Tilt Assign</label>
-        <label><input type="checkbox" id="chkMotionRoll"> Motion Roll Assign</label>
-        <label><input type="checkbox" id="chkTonePart"> Tone Part</label>
-    </div>
+                <details class="read-options-details">
+                    <summary class="section-label" style="cursor: pointer;">☰ Data to Read</summary>
+                    <div class="checkbox-grid">
+                        <label><input type="checkbox" id="chkSetup" checked> Setup</label>
+                        <label><input type="checkbox" id="chkCommon" checked> Common</label>
+                        <label><input type="checkbox" id="chkS1"> S1 Assign</label>
+                        <label><input type="checkbox" id="chkS2"> S2 Assign</label>
+                        <label><input type="checkbox" id="chkThumb"> Thumb Assign</label>
+                        <label><input type="checkbox" id="chkBreath"> Breath Assign</label>
+                        <label><input type="checkbox" id="chkMotionTilt"> Motion Tilt Assign</label>
+                        <label><input type="checkbox" id="chkMotionRoll"> Motion Roll Assign</label>
+                        <label><input type="checkbox" id="chkTonePart"> Tone Part</label>
+                    </div>
+                </details>
                 <button id="readSelectedButton" disabled class="btn-primary">Read Selected</button>
             </div>
-    </div>
+        </div>
 
         <!-- Results Display Area -->
         <div class="results-container">
-    <div id="activeSettingsArea" class="result-box"></div>
-    <div id="setupArea" class="result-box"></div>
-    <div id="systemCommonArea" class="result-box"></div>
-    <div id="toneCommonArea" class="result-box"></div>
-    <div id="s1AssignArea" class="result-box"></div>
-    <div id="s2AssignArea" class="result-box"></div>
-    <div id="thumbAssignArea" class="result-box"></div>
-    <div id="breathAssignArea" class="result-box"></div>
-    <div id="motionTiltAssignArea" class="result-box"></div>
-    <div id="motionRollAssignArea" class="result-box"></div>
-    <div id="tonePartArea" class="result-box"></div>
+            <div id="activeSettingsArea" class="result-box"></div>
+            <div id="setupArea" class="result-box"></div>
+            <div id="systemCommonArea" class="result-box"></div>
+            <div id="toneCommonArea" class="result-box"></div>
+            <div id="s1AssignArea" class="result-box"></div>
+            <div id="s2AssignArea" class="result-box"></div>
+            <div id="thumbAssignArea" class="result-box"></div>
+            <div id="breathAssignArea" class="result-box"></div>
+            <div id="motionTiltAssignArea" class="result-box"></div>
+            <div id="motionRollAssignArea" class="result-box"></div>
+            <div id="tonePartArea" class="result-box"></div>
         </div>
     </div>
     <script src="main.js"></script>
 </body>
+
 </html>
